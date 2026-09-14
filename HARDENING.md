@@ -4,10 +4,21 @@ This file is ours, not upstream's — kept separate from `README.md` (upstream's
 
 ## Upstream source
 
-- **Origin**: [`robcerda/monarch-mcp-server`](https://github.com/robcerda/monarch-mcp-server), vendored as a git submodule (see root `.gitmodules`) — full upstream git history is present in this directory.
+- **Original project**: [`robcerda/monarch-mcp-server`](https://github.com/robcerda/monarch-mcp-server).
 - **Why this project, not building from scratch**: it already had real security-review history (documented audit findings fixed in its own PR history) before we started. That's inherited value — but every fix needed independent verification, not assumed trust. Full context in `docs/PROJECT_PLAN.md` under "MCP servers / integrations — hand-rolled or audited."
-- **Working approach**: hardening work happens as commits directly on top of upstream's own history in this directory (not a separate clean copy) — `git log --oneline` here shows both upstream's commits and ours. This audit found no fixes were actually needed upstream (see checklist below), so there are currently no samwise-authored commits in this submodule's history — that may change later.
-- **Pulling upstream updates**: since our own commits (if any) sit on top of a specific pinned commit, a plain `git submodule update --remote` would overwrite them by resetting to upstream's branch tip. Instead: `cd services/mcp-monarch && git fetch origin && git rebase origin/main` (rebase our commits onto the new upstream tip, resolving conflicts if any), then from the repo root `git add services/mcp-monarch && git commit` to record the new pinned commit. Re-run the audit checklist below after any upstream update — a rebase can silently change behavior the checklist relies on (e.g. `MUTATING_TOOLS` gaining a new entry).
+- **Vendored via a fork, not the original repo directly**: `.gitmodules` points this submodule at [`sbllrd/monarch-mcp-server`](https://github.com/sbllrd/monarch-mcp-server) (a fork), not `robcerda/monarch-mcp-server` — needed because our own hardening commits (this file, and any future ones) get pushed there. The original repo isn't ours to push to. Remotes in this directory: `origin` = the fork (push here), `upstream` = the original repo (fetch-only, never push).
+- **Working approach**: hardening work happens as commits directly on top of upstream's own history in this directory (not a separate clean copy) — `git log --oneline` here shows both upstream's commits and ours. This audit found no functional fixes were actually needed upstream (see checklist below); the only samwise-authored commit so far is this file.
+- **Pulling upstream updates**:
+  ```
+  cd services/mcp-monarch
+  git fetch upstream
+  git rebase upstream/main          # replay our commits onto the new upstream tip
+  git push origin main              # keep the fork's main in sync with our rebased history
+  cd ../..
+  git add services/mcp-monarch && git commit   # record the new pinned commit in the parent repo
+  ```
+  A plain `git submodule update --remote` would instead reset to `origin`'s tip with no rebase — since `origin` is our fork, that's actually safe here (it'd just re-fetch what we already pushed), but it won't pull anything new from upstream at all. Always fetch from `upstream` specifically to get real upstream changes. Re-run the audit checklist below after any upstream update — a rebase can silently change behavior the checklist relies on (e.g. `MUTATING_TOOLS` gaining a new entry).
+- **Fresh clone of the parent repo**: `git submodule update --init` sets up `origin` (the fork) automatically from `.gitmodules`, but not `upstream` — add it yourself: `git remote add upstream https://github.com/robcerda/monarch-mcp-server.git`.
 - **Current pinned commit**: see `git submodule status` from the repo root, or `git -C services/mcp-monarch log -1`.
 
 ## Audit checklist before this is trusted with real data
