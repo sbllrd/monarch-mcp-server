@@ -62,3 +62,7 @@ Only relevant if a *direct* claude.ai web/mobile custom connector to Monarch is 
 ## Testable now, no hardware needed
 
 Everything above can be verified and built on any dev machine. Monarch account credentials needed for live testing — use a real account, treat the session/credentials with the same care as any other secret in `.env.example`.
+
+## Logging integration: none, deliberately
+
+Don't add a `services/logging` dependency or `log_execution()` calls into this vendored source. `execution_logs` rows for every call to this server are the orchestrator's job (it's the MCP client making the calls) — adding logging here would mean maintaining a diff from upstream for something the orchestrator already covers, which cuts against the whole point of the single-directory vendoring pattern (hardening commits only, kept minimal and rebasable). See `orchestrator/README.md`'s Logging integration section.
