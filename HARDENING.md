@@ -5,7 +5,7 @@ This file is ours, not upstream's — kept separate from `README.md` (upstream's
 ## Upstream source
 
 - **Original project**: [`robcerda/monarch-mcp-server`](https://github.com/robcerda/monarch-mcp-server).
-- **Why this project, not building from scratch**: it already had real security-review history (documented audit findings fixed in its own PR history) before we started. That's inherited value — but every fix needed independent verification, not assumed trust. Full context in `docs/PROJECT_PLAN.md` under "MCP servers / integrations — hand-rolled or audited."
+- **Why this project, not building from scratch**: it already had real security-review history (documented audit findings fixed in its own PR history) before we started. That's inherited value — but every fix needed independent verification, not assumed trust. Full context in `docs/architecture/mcp-monarch.md`.
 - **Vendored via a fork, not the original repo directly**: `.gitmodules` points this submodule at [`sbllrd/monarch-mcp-server`](https://github.com/sbllrd/monarch-mcp-server) (a fork), not `robcerda/monarch-mcp-server` — needed because our own hardening commits (this file, and any future ones) get pushed there. The original repo isn't ours to push to. Remotes in this directory: `origin` = the fork (push here), `upstream` = the original repo (fetch-only, never push).
 - **Working approach**: hardening work happens as commits directly on top of upstream's own history in this directory (not a separate clean copy) — `git log --oneline` here shows both upstream's commits and ours. This audit found no functional fixes were actually needed upstream (see checklist below); the only samwise-authored commit so far is this file.
 - **Pulling upstream updates**:
