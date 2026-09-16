@@ -37,8 +37,10 @@ Runs with **stdio transport (the default)** — zero network listener, so there'
 ```
 cd services/mcp-monarch
 uv sync --locked
-uv run --locked login_setup.py   # one-time, interactive, run by a human — never through an agent/chat
+uv run --locked login_setup.py   # interactive, run by a human — never through an agent/chat
 ```
+
+**Per-machine, not one-time-ever**: `login_setup.py` saves the session via the `keyring` package, which on macOS writes to that specific machine's local login Keychain (`com.mcp.monarch-mcp-server`/`monarch-token`). That entry does not transfer via `git clone`, `git submodule`, or any other repo-level mechanism — cloning this repo onto the Mac Mini gets you the code, not the credential. Re-run `login_setup.py` there before Monarch will authenticate on that box. Tracked as a required step in `orchestrator/setup.sh`'s manual-steps output and `infra/mac-setup/README.md`'s software bring-up checklist.
 
 Then register with the MCP client that will use it (Claude Desktop, Claude Code):
 
