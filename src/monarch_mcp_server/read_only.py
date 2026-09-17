@@ -9,6 +9,15 @@ approval section is about.
 
 Read only is off by default. Enabling it is a deliberate choice, so existing
 setups keep working exactly as before.
+
+``MONARCH_MCP_ALLOWED_MUTATIONS`` punches a narrow, explicit hole in that
+gate: a comma-separated list of exact tool names from ``MUTATING_TOOLS`` that
+should register anyway, for a deployment that wants one or two specific
+writes (e.g. re-categorizing a transaction) without dropping to full
+read/write. Unrecognised names and anything in ``PERMANENTLY_EXCLUDED`` are
+ignored rather than erroring, so a typo or an attempt to allowlist a
+permanently-excluded tool fails closed (the tool simply stays unregistered)
+instead of crashing the server.
 """
 
 import logging
@@ -18,8 +27,17 @@ from typing import Any, Callable, FrozenSet, TypeVar
 logger = logging.getLogger(__name__)
 
 ENV_VAR = "MONARCH_MCP_READ_ONLY"
+ALLOWLIST_ENV_VAR = "MONARCH_MCP_ALLOWED_MUTATIONS"
 
 _TRUTHY = frozenset({"1", "true", "t", "yes", "y", "on"})
+
+# Tools that stay unregistered even if named in MONARCH_MCP_ALLOWED_MUTATIONS.
+# delete_transaction has no visible undo in the Monarch UI/API -- see
+# docs/architecture/mcp-monarch.md's "exclude ... permanently regardless of
+# confirm-gating" note. This is a second, independent check, not just a
+# matter of leaving it off the allowlist: it holds even if a future config
+# change lists it by mistake.
+PERMANENTLY_EXCLUDED: FrozenSet[str] = frozenset({"delete_transaction"})
 
 # Every registered tool that writes. Listed explicitly rather than matched by
 # name prefix: this is a security control, and a tool silently failing to be
@@ -76,6 +94,37 @@ def is_read_only() -> bool:
     return os.environ.get(ENV_VAR, "").strip().lower() in _TRUTHY
 
 
+def allowed_mutations() -> FrozenSet[str]:
+    """Mutating tools explicitly allowlisted through read only mode.
+
+    Reads ``MONARCH_MCP_ALLOWED_MUTATIONS``, a comma-separated list of tool
+    names. Anything not in ``MUTATING_TOOLS``, or in ``PERMANENTLY_EXCLUDED``,
+    is dropped with a warning rather than allowed through or raised -- a
+    misconfiguration here should narrow what gets exposed, never widen it.
+    """
+    raw = os.environ.get(ALLOWLIST_ENV_VAR, "")
+    named = {name.strip() for name in raw.split(",") if name.strip()}
+
+    unknown = named - MUTATING_TOOLS
+    if unknown:
+        logger.warning(
+            "%s names tools that are not recognised mutating tools, "
+            "ignoring: %s",
+            ALLOWLIST_ENV_VAR,
+            sorted(unknown),
+        )
+
+    excluded = named & PERMANENTLY_EXCLUDED
+    if excluded:
+        logger.warning(
+            "%s lists permanently excluded tools, ignoring: %s",
+            ALLOWLIST_ENV_VAR,
+            sorted(excluded),
+        )
+
+    return frozenset(named & MUTATING_TOOLS - PERMANENTLY_EXCLUDED)
+
+
 def install(mcp: Any) -> None:
     """Make ``mcp.tool()`` skip mutating tools while read only is enabled.
 
@@ -87,6 +136,7 @@ def install(mcp: Any) -> None:
     if not is_read_only():
         return
 
+    allowed = allowed_mutations()
     original_tool = mcp.tool
 
     def guarded_tool(*args: Any, **kwargs: Any) -> Callable[[F], F]:
@@ -99,6 +149,14 @@ def install(mcp: Any) -> None:
             positional = args[0] if args and isinstance(args[0], str) else None
             name = positional or kwargs.get("name") or getattr(fn, "__name__", "")
             if name in MUTATING_TOOLS:
+                if name in allowed:
+                    logger.warning(
+                        "Read only mode: %s is explicitly allowlisted via %s, "
+                        "registering it anyway",
+                        name,
+                        ALLOWLIST_ENV_VAR,
+                    )
+                    return register(fn)
                 logger.info("Read only mode: not registering %s", name)
                 return fn
             return register(fn)
@@ -107,7 +165,10 @@ def install(mcp: Any) -> None:
 
     mcp.tool = guarded_tool  # type: ignore[method-assign]
     logger.warning(
-        "%s is set: %d mutating tools will not be registered",
+        "%s is set: %d mutating tools will not be registered%s",
         ENV_VAR,
-        len(MUTATING_TOOLS),
+        len(MUTATING_TOOLS) - len(allowed),
+        f" ({sorted(allowed)} allowlisted via {ALLOWLIST_ENV_VAR})"
+        if allowed
+        else "",
     )

@@ -26,6 +26,42 @@ class TestIsReadOnly:
         assert read_only.is_read_only() is False
 
 
+class TestAllowedMutations:
+    def test_unset_allows_nothing(self, monkeypatch):
+        monkeypatch.delenv(read_only.ALLOWLIST_ENV_VAR, raising=False)
+        assert read_only.allowed_mutations() == frozenset()
+
+    def test_a_named_mutating_tool_is_allowed(self, monkeypatch):
+        monkeypatch.setenv(
+            read_only.ALLOWLIST_ENV_VAR, "categorize_transaction"
+        )
+        assert read_only.allowed_mutations() == {"categorize_transaction"}
+
+    def test_multiple_comma_separated_names_with_whitespace(self, monkeypatch):
+        monkeypatch.setenv(
+            read_only.ALLOWLIST_ENV_VAR,
+            " categorize_transaction ,mark_transaction_reviewed,",
+        )
+        assert read_only.allowed_mutations() == {
+            "categorize_transaction",
+            "mark_transaction_reviewed",
+        }
+
+    def test_unrecognised_names_are_dropped_not_raised(self, monkeypatch):
+        """A typo should narrow the grant, never widen or crash it."""
+        monkeypatch.setenv(
+            read_only.ALLOWLIST_ENV_VAR, "categorize_transaction,not_a_real_tool"
+        )
+        assert read_only.allowed_mutations() == {"categorize_transaction"}
+
+    def test_permanently_excluded_tools_are_dropped_even_if_named(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv(read_only.ALLOWLIST_ENV_VAR, "delete_transaction")
+        assert read_only.allowed_mutations() == frozenset()
+        assert "delete_transaction" in read_only.MUTATING_TOOLS
+
+
 class TestRegistration:
     """Registration is skipped, not just guarded at call time.
 
@@ -61,6 +97,60 @@ class TestRegistration:
 
         assert "delete_transaction" not in registered
         assert "get_accounts" in registered
+
+    def test_an_allowlisted_mutating_tool_is_registered(self, monkeypatch):
+        registered = []
+
+        class FakeMCP:
+            def tool(self, *args, **kwargs):
+                def decorator(fn):
+                    registered.append(fn.__name__)
+                    return fn
+
+                return decorator
+
+        monkeypatch.setenv(read_only.ENV_VAR, "1")
+        monkeypatch.setenv(
+            read_only.ALLOWLIST_ENV_VAR, "categorize_transaction"
+        )
+        fake = FakeMCP()
+        read_only.install(fake)
+
+        def categorize_transaction():
+            pass
+
+        def delete_transaction():
+            pass
+
+        fake.tool()(categorize_transaction)
+        assert fake.tool()(delete_transaction) is delete_transaction
+
+        assert "categorize_transaction" in registered
+        assert "delete_transaction" not in registered
+
+    def test_permanently_excluded_tool_is_not_registered_even_when_allowlisted(
+        self, monkeypatch
+    ):
+        registered = []
+
+        class FakeMCP:
+            def tool(self, *args, **kwargs):
+                def decorator(fn):
+                    registered.append(fn.__name__)
+                    return fn
+
+                return decorator
+
+        monkeypatch.setenv(read_only.ENV_VAR, "1")
+        monkeypatch.setenv(read_only.ALLOWLIST_ENV_VAR, "delete_transaction")
+        fake = FakeMCP()
+        read_only.install(fake)
+
+        def delete_transaction():
+            pass
+
+        assert fake.tool()(delete_transaction) is delete_transaction
+        assert "delete_transaction" not in registered
 
     def test_nothing_is_skipped_when_disabled(self, monkeypatch):
         registered = []
